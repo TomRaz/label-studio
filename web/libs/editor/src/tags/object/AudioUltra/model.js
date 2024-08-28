@@ -1,17 +1,18 @@
-import { observe } from "mobx";
-import { getEnv, getRoot, getType, types } from "mobx-state-tree";
-import { customTypes } from "../../../core/CustomTypes";
-import { guidGenerator } from "../../../core/Helpers.ts";
-import { AnnotationMixin } from "../../../mixins/AnnotationMixin";
+import {observe} from "mobx";
+import {getEnv, getRoot, getType, types} from "mobx-state-tree";
+import {customTypes} from "../../../core/CustomTypes";
+import {guidGenerator} from "../../../core/Helpers.ts";
+import {AnnotationMixin} from "../../../mixins/AnnotationMixin";
 import IsReadyMixin from "../../../mixins/IsReadyMixin";
 import ProcessAttrsMixin from "../../../mixins/ProcessAttrs";
-import { SyncableMixin } from "../../../mixins/Syncable";
-import { AudioRegionModel } from "../../../regions/AudioRegion";
+import {SyncableMixin} from "../../../mixins/Syncable";
+import {AudioRegionModel} from "../../../regions/AudioRegion";
 import Utils from "../../../utils";
-import { FF_LSDV_E_278, isFF } from "../../../utils/feature-flags";
-import { isDefined } from "../../../utils/utilities";
+import {FF_LSDV_E_278, isFF} from "../../../utils/feature-flags";
+import {isDefined} from "../../../utils/utilities";
 import ObjectBase from "../Base";
-import { WS_SPEED, WS_VOLUME, WS_ZOOM_X } from "./constants";
+import {WS_SPEED, WS_VOLUME, WS_ZOOM_X} from "./constants";
+import {Segment} from "../../../lib/AudioUltra/Regions/Segment";
 
 /**
  * The Audio tag plays audio and shows its waveform. Use for audio annotation tasks where you want to label regions of audio, see the waveform, and manipulate audio during annotation.
@@ -213,6 +214,33 @@ export const AudioModel = types.compose(
         self.syncHandlers.set("speed", self.handleSyncSpeed);
       },
 
+      addSegment() {
+        const currentTime = self._ws.currentTime;
+        const control = self.activeState;
+        const labels = {[control.valueType]: control.selectedValues()};
+        // 0.2
+        const wsRegion =
+          new Segment(
+            {
+              start: Math.max(0, currentTime - 0.1),
+              end: currentTime + 0.1,
+              drag: false,
+              resize: false,
+              color: "orange",
+              // color: self.getRegionColor(),
+              labels,
+            }, self._ws, self._ws.visualizer, self._ws.regions)
+
+        const r = self.annotation.createResult(wsRegion, labels, control, self);
+        // const updatedRegion = wsRegion.convertToRegion(labels.labels);
+
+        r._ws_region = wsRegion;
+        self._ws.addRegion(wsRegion, false);
+        r.updateColor();
+        return r;
+
+      },
+
       handleSync(data) {
         if (!self._ws?.loaded) return;
 
@@ -267,8 +295,15 @@ export const AudioModel = types.compose(
           dispose = observe(
             self,
             "activeLabel",
-            () => {
+            (a) => {
               const selectedRegions = self._ws?.regions?.selected;
+
+              // if activeLabel is now not empty and before it was, call addSegment
+              // also, if no region is currently selected
+              if (self.activeLabel && !self.annotation?.regionStore.hasSelection) {
+                self.addSegment();
+              }
+
 
               if (!selectedRegions || selectedRegions.length === 0) return;
 
@@ -373,6 +408,7 @@ export const AudioModel = types.compose(
           self._ws.togglePlay();
           return false;
         },
+
 
         setRangeValue(val) {
           self.rangeValue = val;
